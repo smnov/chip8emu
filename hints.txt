@@ -1,0 +1,2 @@
+export LIBRARY_PATH="$LIBRARY_PATH:/opt/homebrew/lib"
+
