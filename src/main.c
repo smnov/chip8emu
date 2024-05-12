@@ -107,14 +107,56 @@ void handle_input(chip8_t *chip8) {
                         chip8->state = RUNNING;
                     }
                     break;
-                case SDLK_1:
-                    chip8->state = QUIT;
-                    return;
+                    // Map qwerty keys to CHIP8 keypad
+                    case SDLK_1: chip8->keypad[0x1] = true; break;
+                    case SDLK_2: chip8->keypad[0x2] = true; break;
+                    case SDLK_3: chip8->keypad[0x3] = true; break;
+                    case SDLK_4: chip8->keypad[0xC] = true; break;
+
+                    case SDLK_q: chip8->keypad[0x4] = true; break;
+                    case SDLK_w: chip8->keypad[0x5] = true; break;
+                    case SDLK_e: chip8->keypad[0x6] = true; break;
+                    case SDLK_r: chip8->keypad[0xD] = true; break;
+
+                    case SDLK_a: chip8->keypad[0x7] = true; break;
+                    case SDLK_s: chip8->keypad[0x8] = true; break;
+                    case SDLK_d: chip8->keypad[0x9] = true; break;
+                    case SDLK_f: chip8->keypad[0xE] = true; break;
+
+                    case SDLK_z: chip8->keypad[0xA] = true; break;
+                    case SDLK_x: chip8->keypad[0x0] = true; break;
+                    case SDLK_c: chip8->keypad[0xB] = true; break;
+                    case SDLK_v: chip8->keypad[0xF] = true; break;
+
                 default:
                     break;
             }
             break;
             case SDL_KEYUP:
+                            switch (event.key.keysym.sym) {
+                                // Map qwerty keys to CHIP8 keypad
+                                case SDLK_1: chip8->keypad[0x1] = false; break;
+                                case SDLK_2: chip8->keypad[0x2] = false; break;
+                                case SDLK_3: chip8->keypad[0x3] = false; break;
+                                case SDLK_4: chip8->keypad[0xC] = false; break;
+
+                                case SDLK_q: chip8->keypad[0x4] = false; break;
+                                case SDLK_w: chip8->keypad[0x5] = false; break;
+                                case SDLK_e: chip8->keypad[0x6] = false; break;
+                                case SDLK_r: chip8->keypad[0xD] = false; break;
+
+                                case SDLK_a: chip8->keypad[0x7] = false; break;
+                                case SDLK_s: chip8->keypad[0x8] = false; break;
+                                case SDLK_d: chip8->keypad[0x9] = false; break;
+                                case SDLK_f: chip8->keypad[0xE] = false; break;
+
+                                case SDLK_z: chip8->keypad[0xA] = false; break;
+                                case SDLK_x: chip8->keypad[0x0] = false; break;
+                                case SDLK_c: chip8->keypad[0xB] = false; break;
+                                case SDLK_v: chip8->keypad[0xF] = false; break;
+
+                                default: break;
+                            }
                 break;
             default:
                 break;
@@ -134,6 +176,7 @@ bool init_chip8(chip8_t *chip8, const char rom_name[]) {
     chip8->state = RUNNING;
     chip8->PC = entry_point; // Start PC at ROM entry point
     chip8->rom_name = rom_name;
+    chip8->stack_ptr = &chip8->stack[0];
     // Load font
     const uint32_t font[] = {
         0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -229,6 +272,7 @@ void emulate_commands(chip8_t *chip8, config_t *config) {
                 // 0x00EE: Return from subroutine
                 // Set program counter to last address on subroutine stack ("pop" it off the stack)
                 //   so that next opcode will be gotten from that address.
+                printf("Return from subroutine\n");
                 chip8->PC = *--chip8->stack_ptr;
             } else {
                 // Calls machine code routine (RCA 1802 for COSMAC VIP) at address NNN
@@ -251,16 +295,19 @@ void emulate_commands(chip8_t *chip8, config_t *config) {
             if (chip8->V[chip8->inst.X] == chip8->inst.NN) {
                 chip8->PC += 2;
             }
+            break;
         case 0x04:
             printf("Skips the next instruction if VX NOT equals NN\n");
             if (chip8->V[chip8->inst.X] != chip8->inst.NN) {
                 chip8->PC += 2;
             }
+            break;
         case 0x05:
             printf("Skips the next instruction if VX equals VY\n");
             if (chip8->V[chip8->inst.X] == chip8->V[chip8->inst.Y]) {
                 chip8->PC += 2;
             }
+            break;
         case 0x06:
             // 0x6XNN - Set register VX to NN
             printf("Set register V%X(0x%04X) to NN (0x%04x)\n", chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.NN);
@@ -271,48 +318,62 @@ void emulate_commands(chip8_t *chip8, config_t *config) {
             chip8->V[chip8->inst.X] += chip8->inst.NN;
             break;
         case 0x08:
-            if (chip8->inst.N == 0) {
-                chip8->inst.X = chip8->inst.Y;
-            }
-            else if (chip8->inst.N == 1) {
-                chip8->inst.X = chip8->inst.Y | chip8->inst.X;
-            }
-            else if (chip8->inst.N == 2) {
-                chip8->inst.X = chip8->inst.Y & chip8->inst.X;
-            }
-            else if (chip8->inst.N == 3) {
-                chip8->inst.X = chip8->inst.Y ^ chip8->inst.X;
-            }
-            else if (chip8->inst.N == 4) {
-                chip8->inst.X += chip8->inst.Y;
-            }
-            else if (chip8->inst.N == 5) {
-                chip8->inst.X -= chip8->inst.Y;
-            }
-            else if (chip8->inst.N == 6) {
-                // Stores the least significant bit of VX in VF and then shifts VX to the right by 1.
-                int LSB = chip8->V[chip8->inst.X] & 0x01; // least significant bit of VX
-                chip8->V[chip8->inst.X] >>= 1;
-            }
-            else if (chip8->inst.N == 7) {
-                // Sets VX to VY minus VX. VF is set to 0 when there's an underflow, and 1 when there is not.
-                chip8->V[chip8->inst.X] = chip8->V[chip8->inst.Y] - chip8->V[chip8->inst.X];
-                if (chip8->V[chip8->inst.Y] >= chip8->V[chip8->inst.X]) {
-                    chip8->V[15] = 1;
-                } else {
-                    chip8->V[15] = 0;
-                }
-            }
-            else if (chip8->inst.N == 0xE) {
-                // Stores the most significant bit of VX in VF and then shifts VX to the left by 1.
-                int MSB = chip8->V[chip8->inst.X] | 0x01; // least significant bit of VX
-                chip8->V[chip8->inst.X] <<= 1;
+            switch (chip8->inst.N) {
+                case 0x0:
+                    printf("Sets VX (%04X) to the value of VY (%04X).", chip8->inst.X, chip8->inst.Y);
+                    chip8->V[chip8->inst.X] = chip8->V[chip8->inst.Y];
+                    break;
+                case 0x1:
+                    // Sets VX to VX OR VY
+                    printf("Sets VX (%04X) to VX or VY (%04X).", chip8->inst.X, chip8->inst.Y);
+                    chip8->V[chip8->inst.X] |= chip8->V[chip8->inst.Y];
+                    break;
+                case 0x2:
+                    printf("Sets VX (%04X) to VX and VY (%04X).", chip8->inst.X, chip8->inst.Y);
+                    chip8->V[chip8->inst.X] &= chip8->V[chip8->inst.Y];
+                    break;
+                case 0x3:
+                    // Sets VX to VX xor VY
+                    printf("Sets VX (%04X) to VX xor VY (%04X).", chip8->inst.X, chip8->inst.Y);
+                    chip8->V[chip8->inst.X] ^= chip8->V[chip8->inst.Y];
+                    break;
+                case 0x4:
+                    printf("Adds VY (%04X) to VX (%04X).", chip8->inst.Y, chip8->inst.X);
+                    chip8->inst.X += chip8->inst.Y;
+                    break;
+                case 0x5:
+                    printf("Substract VY (%04X) from VX (%04X).", chip8->inst.Y, chip8->inst.X);
+                    chip8->inst.X -= chip8->inst.Y;
+                    break;
+                case 0x6:
+                    // Stores the least significant bit of VX in VF and then shifts VX to the right by 1.
+                    printf("Stores the least significant bit of VX (%04X) in VF.", chip8->inst.X);
+                    int LSB = chip8->V[chip8->inst.X] & 0x01; // least significant bit of VX
+                    chip8->V[chip8->inst.X] >>= 1;
+                    break;
+                case 0x7:
+                    // Sets VX to VY minus VX. VF is set to 0 when there's an underflow, and 1 when there is not.
+                    printf("Sets VX (%04X) to VY (%04X) minus VX.", chip8->inst.X, chip8->inst.Y);
+                    chip8->V[chip8->inst.X] = chip8->V[chip8->inst.Y] - chip8->V[chip8->inst.X];
+                    if (chip8->V[chip8->inst.Y] >= chip8->V[chip8->inst.X]) {
+                        chip8->V[15] = 1;
+                    } else {
+                        chip8->V[15] = 0;
+                    }
+                    break;
+                case 0xE:
+                    // Stores the most significant bit of VX in VF and then shifts VX to the left by 1.
+                    printf("Stores the most significant bit of VX (%04X) in VF.", chip8->inst.X);
+                    int MSB = chip8->V[chip8->inst.X] | 0x01; // least significant bit of VX
+                    chip8->V[chip8->inst.X] <<= 1;
+                    break;
             }
         case 0x09:
             printf("Skips the next instruction if VX NOT equals VY\n");
-            if (chip8->V[chip8->inst.X] != chip8->V[chip8->inst.Y]) {
+            if (chip8->V[chip8->inst.X] != chip8->V[chip8->inst.Y])
                 chip8->PC += 2;
-            }
+
+            break;
         case 0x0A:
             printf("Sets I (0x%04X) to the address NNN (0x%04X)\n", chip8->inst.reg_i, chip8->inst.NNN);
             chip8->inst.reg_i = chip8->inst.NNN;
@@ -320,13 +381,15 @@ void emulate_commands(chip8_t *chip8, config_t *config) {
         case 0x0B:
             //Jumps to the address NNN plus V0.
             printf("Jumps to the address NNN plus V0\n");
-            chip8->PC = chip8->inst.NNN + chip8->V[0];
+            chip8->V[chip8->inst.X] = (rand() % 256) & chip8->inst.NN;
+            break;
         case 0x0C:
             //Sets VX to the result of a bitwise and operation on a random number (Typically: 0 to 255) and NN.
             printf("Sets VX to the result of a bitwise and operation on a random numbe.\n");
             srand(time(NULL));   // Initialization, should only be called once.
             int r = rand();
             chip8->V[chip8->inst.X] = r & chip8->inst.NN;
+            break;
         case 0x0D:
             // 0xDXYN - Draw N-height sprite at coords X, Y; Read from memory location I
             // Screen pixels are XOR'd with sprite bits,
@@ -361,17 +424,102 @@ void emulate_commands(chip8_t *chip8, config_t *config) {
                 }
                 break;
             case 0x0E:
-                if (chip8->inst.N == 0xE) {
-                    // Skips the next instruction if the key stored in VX is pressed
-                    printf("Key: %x", chip8->inst.N);
+                       if (chip8->inst.NN == 0x9E) {
+                           // 0xEX9E: Skip next instruction if key in VX is pressed
+                           printf("Skip next instruction if key in VX is pressed");
+                           if (chip8->keypad[chip8->V[chip8->inst.X]])
+                               chip8->PC += 2;
 
-                } else if (chip8->inst.N == 0x1) {
-                    // Skips the next instruction if the key stored in VX is not pressed
+                       } else if (chip8->inst.NN == 0xA1) {
+                           printf("Skip next instruction if key in VX is not pressed");
+                           // 0xEX9E: Skip next instruction if key in VX is not pressed
+                           if (!chip8->keypad[chip8->V[chip8->inst.X]])
+                               chip8->PC += 2;
+                       }
+                       break;
+            case 0x0F:
+                switch (chip8->inst.NN) {
+                    case 0x0A: {
+                        // A key press is awaited, and then stored in VX
+                        printf("A key press is awaited, and then stored in VX");
+                        static bool any_key_pressed = false;
+                        static uint8_t key = 0xFF;
+                        for (uint8_t i = 0; key == 0xFF && i < sizeof chip8->keypad; i++) {
+                            if (chip8->keypad[i]) {
+                                key = i;
+                                any_key_pressed = true;
+                                break;
+                            }
+                            if (!any_key_pressed) {
+                                chip8->PC -= 2;
+                            } else {
+                                if (chip8->keypad[key]) {
+                                    chip8->PC -= 2;
+                                } else {
+                                    chip8->V[chip8->inst.X] = key;
+                                    key = 0xFF;
+                                    any_key_pressed = false;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    case 0x07:
+                        // Sets VX to the value of the delay timer.
+                        printf("Sets VX to the value of the delay timer.");
+                        chip8->V[chip8->inst.X] = chip8->delay_timer;
+                        break;
+                    case 0x15:
+                        // Sets the delay timer to VX
+                        printf("Sets the delay timer to VX");
+                        chip8->delay_timer = chip8->V[chip8->inst.X];
+                        break;
+                    case 0x18:
+                        // Sets the sound timer to VX.
+                        printf("Sets the sound timer to VX.");
+                        chip8->sound_timer = chip8->V[chip8->inst.X];
+                        break;
+                    case 0x1E:
+                        // Adds VX to I. VF is not affected.
+                        printf("Adds VX to I. VF is not affected.");
+                        chip8->inst.reg_i += chip8->V[chip8->inst.X];
+                        break;
+                    case 0x29:
+                        // Sets I to the location of the sprite for the character in VX.
+                        printf("Sets I to the location of the sprite for the character in VX.");
+                        chip8->inst.reg_i = chip8->V[chip8->inst.X] * 5;
+                        break;
+                    case 0x33: {
+                        printf("Stores the binary-coded decimal representation of VX");
+                        // Stores the binary-coded decimal representation of VX,
+                        // with the hundreds digit in memory at location in I,
+                        // the tens digit at location I+1, and the ones digit at location I+2
+                        uint8_t bcd = chip8->V[chip8->inst.X];
+                        chip8->ram[chip8->inst.reg_i+2] = bcd % 10;
+                        bcd /= 10;
+                        chip8->ram[chip8->inst.reg_i+1] = bcd % 10;
+                        bcd /= 10;
+                        chip8->ram[chip8->inst.reg_i] = bcd;
+                        break;
+                case 0x55:
+                printf("Stores from V0 to VX (including VX) in memory, starting at address I.");
+                for (uint8_t i = 0; i <= chip8->inst.X; i++)  {
+                    chip8->ram[chip8->inst.reg_i++] = chip8->V[i]; // Increment I each time
+                    }
+                    break;
+                case 0x65:
+                printf("Fills from V0 to VX (including VX) with values from memory, starting at address I.");
+                // 0xFX65: Register load V0-VX inclusive from memory offset from I;
+                //   SCHIP does not increment I, CHIP8 does increment I
+                for (uint8_t i = 0; i <= chip8->inst.X; i++) {
+                    chip8->V[i] = chip8->ram[chip8->inst.reg_i++]; // Increment I each time
+                    break;
                 }
+
         default:
-            printf("Unimplemented opcode: 0x%04X\n", chip8->inst.opcode);
-            chip8->state = PAUSED;
             break;
+                    }
+                }
     }
 }
 
